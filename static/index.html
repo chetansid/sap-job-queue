@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SAP Job Queue Dashboard</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; min-height: 100vh; }
+    header { background: #1a1a2e; color: white; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; }
+    header h1 { font-size: 18px; font-weight: 600; }
+    .status-dot { width: 10px; height: 10px; border-radius: 50%; background: #4caf50; display: inline-block; margin-right: 6px; animation: pulse 2s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+    .main { max-width: 1100px; margin: 0 auto; padding: 24px 16px; }
+    .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
+    .metric { background: white; border-radius: 10px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+    .metric-label { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+    .metric-value { font-size: 28px; font-weight: 600; color: #1a1a2e; }
+    .metric-sub { font-size: 11px; color: #aaa; margin-top: 3px; }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+    .card { background: white; border-radius: 10px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+    .card-title { font-size: 13px; font-weight: 600; color: #333; margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center; }
+    .btn { padding: 8px 16px; background: #1a1a2e; color: white; border: none; border-radius: 8px; font-size: 12px; cursor: pointer; }
+    .btn:hover { background: #2d2d4e; }
+    .btn:disabled { background: #ccc; cursor: not-allowed; }
+    .btn-sm { padding: 6px 12px; font-size: 11px; }
+    input, select { width: 100%; padding: 8px 10px; border: 1px solid #e0e0e0; border-radius: 6px; font-size: 13px; margin-bottom: 10px; outline: none; }
+    input:focus, select:focus { border-color: #1a1a2e; }
+    label { font-size: 11px; color: #666; display: block; margin-bottom: 3px; }
+    .job-list { max-height: 320px; overflow-y: auto; }
+    .job-item { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 0.5px solid #f0f0f0; }
+    .job-item:last-child { border-bottom: none; }
+    .job-status { font-size: 10px; padding: 2px 8px; border-radius: 20px; font-weight: 500; white-space: nowrap; }
+    .s-queued { background: #e8f0fe; color: #1a73e8; }
+    .s-started { background: #fef3e2; color: #b45309; }
+    .s-finished { background: #e6f4ea; color: #137333; }
+    .s-failed { background: #fce8e6; color: #c5221f; }
+    .job-name { font-size: 12px; color: #333; flex: 1; }
+    .job-time { font-size: 11px; color: #aaa; }
+    .log-box { background: #1a1a2e; color: #4caf50; border-radius: 8px; padding: 12px; font-family: monospace; font-size: 11px; max-height: 200px; overflow-y: auto; margin-top: 10px; }
+    .log-line { margin-bottom: 4px; line-height: 1.5; }
+    .log-line.error { color: #ff5252; }
+    .log-line.info { color: #64b5f6; }
+    .refresh-btn { background: none; border: 1px solid #e0e0e0; color: #666; padding: 4px 10px; border-radius: 6px; font-size: 11px; cursor: pointer; }
+    .refresh-btn:hover { background: #f5f5f5; }
+    .empty-state { text-align: center; color: #bbb; font-size: 13px; padding: 30px 0; }
+    .progress-bar { height: 4px; background: #e0e0e0; border-radius: 2px; margin-top: 6px; overflow: hidden; }
+    .progress-fill { height: 100%; background: #4caf50; border-radius: 2px; transition: width 0.3s; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>⚙️ SAP Job Queue Dashboard</h1>
+    <div style="font-size:12px;opacity:0.8;">
+      <span class="status-dot"></span>Live — auto-refreshes every 3s
+    </div>
+  </header>
+
+  <div class="main">
+    <!-- Metrics -->
+    <div class="metrics">
+      <div class="metric">
+        <div class="metric-label">Queued</div>
+        <div class="metric-value" id="m-queued">0</div>
+        <div class="metric-sub">waiting to process</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Completed</div>
+        <div class="metric-value" id="m-finished" style="color:#137333;">0</div>
+        <div class="metric-sub">successfully done</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Failed</div>
+        <div class="metric-value" id="m-failed" style="color:#c5221f;">0</div>
+        <div class="metric-sub">needs attention</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Total Submitted</div>
+        <div class="metric-value" id="m-total">0</div>
+        <div class="metric-sub">this session</div>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <!-- Submit Job -->
+      <div class="card">
+        <div class="card-title">Submit New Job</div>
+        <label>Report Name</label>
+        <input type="text" id="reportName" placeholder="e.g. SAP FI Monthly Close Report" value="SAP BASIS Health Check">
+        <label>Pages to Process</label>
+        <input type="number" id="pages" value="5" min="1" max="50">
+        <label>Quick Samples</label>
+        <select id="samples" onchange="fillSample()">
+          <option value="">-- pick a sample --</option>
+          <option value="SAP FI Monthly Close Report|10">FI Monthly Close (10 pages)</option>
+          <option value="SAP MM Inventory Report|6">MM Inventory Report (6 pages)</option>
+          <option value="SAP BASIS System Health Check|3">BASIS Health Check (3 pages)</option>
+          <option value="SAP SD Sales Analysis|15">SD Sales Analysis (15 pages)</option>
+          <option value="SAP HR Payroll Report|8">HR Payroll Report (8 pages)</option>
+        </select>
+        <button class="btn" onclick="submitJob()" id="submitBtn" style="width:100%;margin-top:4px;">Submit Job</button>
+        <div class="progress-bar" id="submitProgress" style="margin-top:10px;">
+          <div class="progress-fill" id="submitFill" style="width:0%;"></div>
+        </div>
+      </div>
+
+      <!-- Job History -->
+      <div class="card">
+        <div class="card-title">
+          Recent Jobs
+          <button class="refresh-btn" onclick="loadJobs()">↻ Refresh</button>
+        </div>
+        <div class="job-list" id="jobList">
+          <div class="empty-state">No jobs submitted yet</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Activity Log -->
+    <div class="card">
+      <div class="card-title">
+        Activity Log
+        <button class="refresh-btn" onclick="clearLog()">Clear</button>
+      </div>
+      <div class="log-box" id="logBox">
+        <div class="log-line info">Dashboard initialized. Ready to submit jobs.</div>
+      </div>
+    </div>
+  </div>
+
+<script>
+  let jobs = [];
+  let totalSubmitted = 0;
+  let totalFailed = 0;
+
+  function log(msg, type = '') {
+    const box = document.getElementById('logBox');
+    const line = document.createElement('div');
+    line.className = 'log-line ' + type;
+    const time = new Date().toLocaleTimeString();
+    line.textContent = `[${time}] ${msg}`;
+    box.appendChild(line);
+    box.scrollTop = box.scrollHeight;
+  }
+
+  function clearLog() {
+    document.getElementById('logBox').innerHTML = '';
+  }
+
+  function fillSample() {
+    const val = document.getElementById('samples').value;
+    if (!val) return;
+    const [name, pages] = val.split('|');
+    document.getElementById('reportName').value = name;
+    document.getElementById('pages').value = pages;
+    document.getElementById('samples').value = '';
+  }
+
+  async function submitJob() {
+    const name = document.getElementById('reportName').value.trim();
+    const pages = parseInt(document.getElementById('pages').value);
+    if (!name || !pages) return;
+
+    const btn = document.getElementById('submitBtn');
+    btn.disabled = true;
+    btn.textContent = 'Submitting...';
+
+    try {
+      const res = await fetch('/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ report_name: name, pages })
+      });
+      const data = await res.json();
+      totalSubmitted++;
+      jobs.unshift({ id: data.job_id, name, pages, status: 'queued', submitted: new Date() });
+      log(`Job submitted: "${name}" (${pages} pages) → ID: ${data.job_id.slice(0,8)}...`, 'info');
+      updateMetrics();
+      renderJobs();
+    } catch (err) {
+      log('Failed to submit job: ' + err.message, 'error');
+      totalFailed++;
+    }
+
+    btn.disabled = false;
+    btn.textContent = 'Submit Job';
+  }
+
+  async function loadJobs() {
+    for (let job of jobs) {
+      if (job.status === 'queued' || job.status === 'started') {
+        try {
+          const res = await fetch('/status/' + job.id);
+          const data = await res.json();
+          const prev = job.status;
+          job.status = data.status.toLowerCase().replace('jobstatus.', '');
+          if (prev !== data.status) {
+            if (data.status === 'finished') {
+              log(`✓ Completed: "${job.name}"`, '');
+            } else if (data.status === 'failed') {
+              log(`✗ Failed: "${job.name}"`, 'error');
+              totalFailed++;
+            } else if (data.status === 'started') {
+              log(`⟳ Processing: "${job.name}"`, 'info');
+            }
+          }
+        } catch (e) {}
+      }
+    }
+    updateMetrics();
+    renderJobs();
+  }
+
+  function updateMetrics() {
+    const queued = jobs.filter(j => j.status === 'queued').length;
+    const finished = jobs.filter(j => j.status === 'finished').length;
+    const failed = jobs.filter(j => j.status === 'failed').length;
+    document.getElementById('m-queued').textContent = queued;
+    document.getElementById('m-finished').textContent = finished;
+    document.getElementById('m-failed').textContent = failed;
+    document.getElementById('m-total').textContent = totalSubmitted;
+  }
+
+  function renderJobs() {
+    const list = document.getElementById('jobList');
+    if (jobs.length === 0) {
+      list.innerHTML = '<div class="empty-state">No jobs submitted yet</div>';
+      return;
+    }
+    list.innerHTML = jobs.slice(0, 20).map(job => `
+      <div class="job-item">
+        <span class="job-status s-${job.status}">${job.status}</span>
+        <span class="job-name">${job.name} (${job.pages} pages)</span>
+        <span class="job-time">${job.submitted.toLocaleTimeString()}</span>
+      </div>
+    `).join('');
+  }
+
+  async function checkQueueStatus() {
+    try {
+      const res = await fetch('/queue');
+      const data = await res.json();
+      if (data.queued_jobs > 0) {
+        document.getElementById('m-queued').textContent = data.queued_jobs;
+      }
+    } catch (e) {}
+  }
+
+  // Auto refresh every 3 seconds
+  setInterval(() => {
+    loadJobs();
+    checkQueueStatus();
+  }, 3000);
+
+  log('Connected to SAP Job Queue. Submit a job to get started.');
+</script>
+</body>
+</html>
