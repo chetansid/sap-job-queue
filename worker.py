@@ -3,7 +3,7 @@ from redis import Redis
 import os
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=False)
 
 redis_conn = Redis.from_url(os.getenv("REDIS_URL"))
 q = Queue(connection=redis_conn)

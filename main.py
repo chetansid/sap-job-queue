@@ -9,7 +9,7 @@ from tasks import process_sap_report
 import os
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=False)
 
 app = FastAPI(title="SAP Job Queue System")
 redis_conn = Redis.from_url(os.getenv("REDIS_URL"))
