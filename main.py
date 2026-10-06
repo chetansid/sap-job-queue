@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 load_dotenv(override=False)
 
 app = FastAPI(title="SAP Job Queue System")
-redis_conn = Redis.from_url(os.getenv("REDIS_URL"))
+redis_conn = Redis.from_url(os.environ["REDIS_URL"])
 q = Queue(connection=redis_conn)
 
 class ReportRequest(BaseModel):
@@ -26,8 +26,8 @@ def root():
 
 @app.post("/submit")
 def submit_job(request: ReportRequest):
-    job = q.enqueue(process_sap_report, request.report_name, request.pages)
-    return {
+        job = q.enqueue(process_sap_report, request.report_name, request.pages)
+        return {
         "job_id": job.id,
         "status": job.get_status().value,
         "message": f"Job submitted. Check status at /status/{job.id}"
