@@ -52,7 +52,7 @@
   <header>
     <h1>⚙️ SAP Job Queue Dashboard</h1>
     <div style="font-size:12px;opacity:0.8;">
-      <span class="status-dot"></span>Live — auto-refreshes every 3s
+      <span class="status-dot" id="wsDot"></span><span id="wsStatus">Connecting…</span>
     </div>
   </header>
 
@@ -172,8 +172,20 @@
         body: JSON.stringify({ report_name: name, pages })
       });
       const data = await res.json();
-      totalSubmitted++;
-      jobs.unshift({ id: data.job_id, name, pages, status: 'queued', submitted: new Date() });
+      // totalSubmitted++;
+      // jobs.unshift({ id: data.job_id, name, pages, status: 'queued', submitted: new Date() });
+      const existingJob = jobs.find(job => job.id === data.job_id);
+
+      if (!existingJob) {
+        jobs.unshift({
+          id: data.job_id,
+          name,
+          pages,
+          status: 'queued',
+          submitted: new Date()
+        });
+        totalSubmitted++;
+      }
       log(`Job submitted: "${name}" (${pages} pages) → ID: ${data.job_id.slice(0,8)}...`, 'info');
       updateMetrics();
       renderJobs();
@@ -247,10 +259,41 @@
   }
 
   // Auto refresh every 3 seconds
-  setInterval(() => {
-    loadJobs();
-    checkQueueStatus();
-  }, 3000);
+  const RANK = { queued: 0, started: 1, finished: 2, failed: 2 };
+
+  function applyEvent(ev) {
+    let job = jobs.find(j => j.id === ev.job_id);
+    if (!job) {                                   // a job submitted from another tab or client
+      job = { id: ev.job_id, name: ev.name || 'unknown', pages: ev.pages ?? '?', status: ev.status, submitted: new Date() };
+      jobs.unshift(job);
+      totalSubmitted++;
+    } else {
+      if (job.status === ev.status) return;                    // duplicate
+      if (RANK[ev.status] < RANK[job.status]) return;          // out-of-order: never move backwards
+      job.status = ev.status;
+    }
+    const label = { queued: 'Queued', started: '⟳ Processing', finished: '✓ Completed', failed: '✗ Failed' }[ev.status];
+    log(`[push] ${label}: "${job.name}"${ev.error ? ' — ' + ev.error : ''}`, ev.status === 'failed' ? 'error' : 'info');
+    updateMetrics();
+    renderJobs();
+  }
+
+  let ws, retry = 0;
+  function setConn(up) {
+    document.getElementById('wsDot').style.background = up ? '#4caf50' : '#c5221f';
+    document.getElementById('wsStatus').textContent = up ? 'Live — server pushes updates' : 'Disconnected — reconnecting…';
+  }
+  function connectWS() {
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    ws = new WebSocket(`${proto}://${location.host}/ws`);
+    ws.onopen = () => { retry = 0; setConn(true); loadJobs(); };    // resync anything missed while offline
+    ws.onmessage = e => applyEvent(JSON.parse(e.data));
+    ws.onclose = () => {
+      setConn(false);
+      setTimeout(connectWS, Math.min(1000 * 2 ** retry++, 15000));
+    };
+  }
+  connectWS();
 
   log('Connected to SAP Job Queue. Submit a job to get started.');
 </script>
